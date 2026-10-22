@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>0DTE ARENA</title>
+<!--
+  0DTE ARENA loader shell for Golden Ticket: https://arena.goldentickettrades.com/ (GitHub Pages, repo
+  goldentickettrades-creator/arena with a custom domain; the CNAME file next to this one names it).
+  The game's host forces a frame-ancestors policy, so Golden Ticket frames this page instead. Framed by a
+  Golden Ticket page, it fetches the live game page from the game's /gt/shell endpoint and writes it into
+  this document: the game runs here, while its realtime socket and its relative URLs go to the game origin.
+  Opened directly, it forwards to the game, carrying over only the game's own share links (#u/, #ref/, ?ref=).
+  Framed by any other site, it shows only a link. It writes only a page that is shell-aware (the client's gt2
+  socket switch) and free of the game host's own head script; otherwise it shows the link and reports an error.
+  It lives on a Golden Ticket subdomain on purpose: same-site with app.goldentickettrades.com, the game's save
+  here is ordinary persistent storage. In a cross-site frame (a Lovable preview, or this page moved to another
+  site) storage is third-party, which Safari drops when the browser quits; the game is then told so
+  (window.__ARENA_SHELL_3P): coin purchases go to the full-screen game and a notice says so.
+  No dependencies, no global names (the game's own scripts run in this same window afterwards).
+  Do not add a Content-Security-Policy here: it would stay in force for the game written into this page.
+-->
+<style>
+html,body{margin:0;height:100%;background:#06070b;color:#eef1f7;font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+#shell{box-sizing:border-box;min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px 16px;text-align:center}
+.mark{font-weight:900;font-size:22px;letter-spacing:.12em;color:#e8b84b;text-shadow:0 0 24px rgba(232,184,75,.35)}
+.spin{width:30px;height:30px;border-radius:50%;border:3px solid rgba(232,184,75,.22);border-top-color:#e8b84b;animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+.note{max-width:320px;color:#9aa3b5;font-size:13px}
+.open{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 20px;border-radius:10px;background:#e8b84b;color:#06070b;font-weight:700;text-decoration:none}
+.open:focus-visible{outline:2px solid #eef1f7;outline-offset:3px}
+</style>
+</head>
+<body>
+<main id="shell" role="status" aria-live="polite">
+  <div class="mark">0DTE ARENA</div>
+  <div class="spin" aria-hidden="true"></div>
+  <div class="note">Loading the live arena…</div>
+</main>
+<noscript><p style="text-align:center"><a class="open" href="https://regal-wolf-424.higgsfield.app/" target="_blank" rel="noopener">Open 0DTE ARENA</a></p></noscript>
+<script>
+(function () {
+  "use strict";
+  /* The game's origin: the page comes from GAME + "/gt/shell" (CORS for this shell's origin only). */
+  var GAME = "https://regal-wolf-424.higgsfield.app";
+  /* Pages that may frame the game here: Golden Ticket and its Lovable builds (only the first is same-site with
+     this page, so only there does the game's save persist in every browser; see crossSite). */
+  var PARENTS = [
+    "https://app.goldentickettrades.com",
+    "https://golden-ticket-chat.lovable.app",
+    "https://id-preview--3018bae6-9e12-48c4-a865-e404d06aa0a3.lovable.app"
+  ];
+  /* Further out than the direct parent, the Lovable editor (which frames its preview) is fine too. */
+  var OUTER = ["https://lovable.dev"];
+  /* /gt/shell puts this first in <head>; the title proves it is the game page. */
+  var MARK = "<script>window.__ARENA_SHELL=1<\/script>";
+  var TITLE = "<title>0DTE ARENA";
+  /* The client's own shell switch for its socket host (gt2_patch.mjs; /gt/shell requires it too). A page without
+     it (an older client) would boot here and never connect, so it is refused and Golden Ticket shows its fallback. */
+  var CLIENT = "/*gt2:shell*/window.__ARENA_SHELL||";
+  /* The game host's own head script (its client SDK: wraps fetch, listens to its parent). /gt/shell is text, which
+     the host leaves alone, and cuts it out if it ever comes with the page; any trace left means: do not run it here. */
+  var HOST_SCRIPT = /window\.__hf\w|window\.hf\s*=/;
+  var TIMEOUT_MS = 20000;
+
+  var box = document.getElementById("shell");
+
+  function has(list, o) { return list.indexOf(o) >= 0; }
+
+  /* The origins of the pages framing this one, direct parent first, when they may embed the game; else null. */
+  function trustedAncestors() {
+    var ao = location.ancestorOrigins;
+    if (ao && ao.length) {
+      if (!has(PARENTS, ao[0])) return null;
+      var list = [ao[0]];
+      for (var i = 1; i < ao.length; i++) {
+        if (!has(PARENTS, ao[i]) && !has(OUTER, ao[i])) return null;
+        list.push(ao[i]);
+      }
+      return list;
+    }
+    /* No ancestorOrigins (Firefox): the referrer, i.e. the page that loaded this frame. It names only the
+       direct parent, so allow only a parent that is itself the top-level page (no unseen outer frames). */
+    if (window.parent !== window.top) return null;
+    try {
+      var o = document.referrer ? new URL(document.referrer).origin : "";
+      return has(PARENTS, o) ? [o] : null;
+    } catch (e) { return null; }
+  }
+
+  /* Scheme + registrable domain, taken as the last two host labels (an IP address stays whole). That is exact
+     for every host this can be asked about: this page's own and the PARENTS / OUTER origins, none of which is
+     under a multi-label public suffix. */
+  function site(origin) {
+    try {
+      var u = new URL(origin), h = u.hostname.toLowerCase();
+      return u.protocol + "//" + (/^[\d.]+$|:/.test(h) ? h : h.split(".").slice(-2).join("."));
+    } catch (e) { return ""; }
+  }
+
+  /* True when any framing page is on another site: this frame's storage is then third-party (partitioned, and in
+     Safari also ephemeral: gone when the browser quits). From arena.goldentickettrades.com, Golden Ticket's own
+     app.goldentickettrades.com is the same site; the Lovable builds and the Lovable editor are not. */
+  function crossSite(list) {
+    var mine = site(location.origin);
+    for (var i = 0; i < list.length; i++) if (!mine || site(list[i]) !== mine) return true;
+    return false;
+  }
+
+  /* Runs INSIDE the game page, only when crossSite(): a notice that progress made in this frame may not be kept.
+     Serialized into the page (see THIRD_PARTY), so it may use nothing from this script but its argument. */
+  function notice(game) {
+    function show() {
+      if (document.getElementById("arena3p")) return;
+      var bar = document.createElement("div");
+      bar.id = "arena3p";
+      bar.setAttribute("role", "note");
+      bar.style.cssText = "position:fixed;z-index:2147483000;top:8px;left:8px;right:8px;margin:0 auto;max-width:560px;box-sizing:border-box;display:flex;align-items:center;gap:10px;padding:6px 6px 6px 12px;border:1px solid #e8b84b;border-radius:10px;background:rgba(6,7,11,.95);color:#eef1f7;font:12px/1.4 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.5)";
+      var text = document.createElement("span");
+      text.style.flex = "1";
+      text.textContent = "This browser may not keep progress made in this frame. Save your recovery code, or play full screen.";
+      var open = document.createElement("a");
+      open.href = game;
+      open.target = "_blank";
+      open.rel = "noopener";
+      open.textContent = "Full screen";
+      open.style.cssText = "color:#e8b84b;font-weight:700;white-space:nowrap;text-decoration:none";
+      var close = document.createElement("button");
+      close.type = "button";
+      close.setAttribute("aria-label", "Dismiss");
+      close.textContent = "×";
+      close.style.cssText = "min-width:32px;min-height:32px;border:0;border-radius:8px;background:transparent;color:#9aa3b5;font-size:18px;cursor:pointer";
+      close.onclick = function () { bar.parentNode && bar.parentNode.removeChild(bar); };
+      bar.appendChild(text);
+      bar.appendChild(open);
+      bar.appendChild(close);
+      document.body.appendChild(bar);
+    }
+    if (document.body) show(); else document.addEventListener("DOMContentLoaded", show);
+  }
+  /* Goes right after MARK in a cross-site frame. window.__ARENA_SHELL_3P makes the game send coin purchases to the
+     full-screen game (gt2_patch.mjs) instead of crediting this frame's possibly short-lived account. */
+  var THIRD_PARTY = "<script>window.__ARENA_SHELL_3P=1;(" + notice + ")(" + JSON.stringify(GAME + "/") + ")<\/script>";
+
+  function showOpen(text) {
+    box.removeAttribute("aria-live");
+    box.innerHTML = "";
+    var mark = document.createElement("div");
+    mark.className = "mark";
+    mark.textContent = "0DTE ARENA";
+    var note = document.createElement("div");
+    note.className = "note";
+    note.textContent = text;
+    var a = document.createElement("a");
+    a.className = "open";
+    a.href = GAME + "/";
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = "Open 0DTE Arena";
+    box.appendChild(mark);
+    box.appendChild(note);
+    box.appendChild(a);
+  }
+
+  /* Opened directly: go to the game itself. Only the game's own share links come along (#u/<name>, #ref/<code>,
+     ?ref=<code>); anything else in the URL is dropped. Golden Ticket never links here at the top level, and this
+     address must not pass on a #gtlink/ account-link request (Golden Ticket puts that only in its frame's URL) or
+     whatever else someone puts in a link to it (e.g. ?code= or #access_token=). */
+  if (window.parent === window) {
+    var q = /^\?ref=[A-Za-z0-9-]{1,40}$/.test(location.search) ? location.search : "";
+    var h = /^#(u|ref)\/[^#]{1,200}$/.test(location.hash) ? location.hash : "";
+    location.replace(GAME + "/" + q + h);
+    return;
+  }
+
+  var ancestors = trustedAncestors();
+  if (!ancestors) {
+    showOpen("Play 0DTE ARENA in its own tab.");
+    return;
+  }
+  var embedder = ancestors[0];
+  var thirdParty = crossSite(ancestors);
+
+  var done = false;
+  var ctl = typeof AbortController === "function" ? new AbortController() : null;
+
+  function fail() {
+    if (done) return;
+    done = true;
+    clearTimeout(timer);
+    if (ctl) { try { ctl.abort(); } catch (e) {} }
+    showOpen("The arena couldn't load here. Open it in its own tab instead.");
+    try { window.parent.postMessage({ source: "0dte-arena", type: "error" }, embedder); } catch (e) {}
+  }
+
+  var timer = setTimeout(fail, TIMEOUT_MS);
+  if (typeof fetch !== "function") { fail(); return; }
+
+  fetch(GAME + "/gt/shell", { cache: "no-store", credentials: "omit", mode: "cors", signal: ctl ? ctl.signal : undefined })
+    .then(function (res) {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.text();
+    })
+    .then(function (html) {
+      if (done) return;
+      if (html.indexOf(MARK) < 0 || html.indexOf(TITLE) < 0) throw new Error("not the game page");
+      if (html.indexOf(CLIENT) < 0) throw new Error("not a shell-aware client");
+      if (HOST_SCRIPT.test(html)) throw new Error("the game host's own script is in the page");
+      done = true;
+      clearTimeout(timer);
+      if (thirdParty) html = html.replace(MARK, function () { return MARK + THIRD_PARTY; });
+      /* The URL (and its #gtlink/... fragment) stays as it is: the game reads it once it runs. */
+      document.open();
+      document.write(html);
+      document.close();
+    })
+    .catch(fail);
+})();
+</script>
+</body>
+</html>
