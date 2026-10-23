@@ -11,8 +11,8 @@
   The game's host forces a frame-ancestors policy, so Golden Ticket frames this page instead. Framed by a
   Golden Ticket page, it fetches the live game page from the game's /gt/shell endpoint and writes it into
   this document: the game runs here, while its realtime socket and its relative URLs go to the game origin.
-  Opened directly, it forwards to the game, carrying over only the game's own share links (#u/, #ref/, ?ref=).
-  Framed by any other site, it shows only a link. It writes only a page that is shell-aware (the client's gt2
+  Opened directly (Golden Ticket's full-screen and link buttons), it runs the game here too, so Golden Ticket has ONE
+  save: the frame and full screen share this origin's storage. Framed by any other site, it shows only a link. It writes only a page that is shell-aware (the client's gt2
   socket switch) and free of the game host's own head script; otherwise it shows the link and reports an error.
   It lives on a Golden Ticket subdomain on purpose: same-site with app.goldentickettrades.com, the game's save
   here is ordinary persistent storage. In a cross-site frame (a Lovable preview, or this page moved to another
@@ -144,7 +144,18 @@ html,body{margin:0;height:100%;background:#06070b;color:#eef1f7;font:14px/1.45 s
      full-screen game (gt2_patch.mjs) instead of crediting this frame's possibly short-lived account. */
   var THIRD_PARTY = "<script>window.__ARENA_SHELL_3P=1;(" + notice + ")(" + JSON.stringify(GAME + "/") + ")<\/script>";
 
-  function showOpen(text) {
+  /* The supported parts of this page's URL (the game's own share / link fragments), carried along when sending the
+     member to the full-screen page so a pending #gtlink/ confirmation or a referral is not lost. */
+  function keep() {
+    var q = /^\?ref=[A-Za-z0-9-]{1,40}$/.test(location.search) ? location.search : "";
+    var h = /^#(u|ref|gtlink)\/[^#]{1,300}$/.test(location.hash) ? location.hash : "";
+    return q + h;
+  }
+
+  /* opts.label / opts.sameTab for the main button; opts.alt adds a small link to the game host's own site, which
+     keeps a separate save (said so), as a last resort when this page cannot load the game at all. */
+  function showOpen(text, href, opts) {
+    opts = opts || {};
     box.removeAttribute("aria-live");
     box.innerHTML = "";
     var mark = document.createElement("div");
@@ -155,33 +166,52 @@ html,body{margin:0;height:100%;background:#06070b;color:#eef1f7;font:14px/1.45 s
     note.textContent = text;
     var a = document.createElement("a");
     a.className = "open";
-    a.href = GAME + "/";
-    a.target = "_blank";
-    a.rel = "noopener";
-    a.textContent = "Open 0DTE Arena";
+    a.href = href || GAME + "/";
+    if (!opts.sameTab) { a.target = "_blank"; a.rel = "noopener"; }
+    if (opts.reload) a.onclick = function (e) { e.preventDefault(); location.reload(); };
+    a.textContent = opts.label || "Open 0DTE Arena";
     box.appendChild(mark);
     box.appendChild(note);
     box.appendChild(a);
+    if (opts.alt) {
+      var alt = document.createElement("a");
+      alt.href = GAME + "/";
+      alt.target = "_blank";
+      alt.rel = "noopener";
+      alt.className = "note";
+      alt.textContent = "Or use the game's own site (it keeps a separate save)";
+      box.appendChild(alt);
+    }
   }
 
-  /* Opened directly: go to the game itself. Only the game's own share links come along (#u/<name>, #ref/<code>,
-     ?ref=<code>); anything else in the URL is dropped. Golden Ticket never links here at the top level, and this
-     address must not pass on a #gtlink/ account-link request (Golden Ticket puts that only in its frame's URL) or
-     whatever else someone puts in a link to it (e.g. ?code= or #access_token=). */
-  if (window.parent === window) {
-    var q = /^\?ref=[A-Za-z0-9-]{1,40}$/.test(location.search) ? location.search : "";
-    var h = /^#(u|ref)\/[^#]{1,200}$/.test(location.hash) ? location.hash : "";
-    location.replace(GAME + "/" + q + h);
-    return;
-  }
-
-  var ancestors = trustedAncestors();
+  /* Opened directly (Golden Ticket's "Open full screen" and "Confirm in the game" links come here): the game runs
+     right here, so it uses the SAME save as the Golden Ticket frame (this origin's storage). The game itself reads
+     the URL (#u/, #ref/, ?ref=, #gtlink/ with its warning dialog), exactly as on its own address. */
+  var topLevel = window.parent === window;
+  var ancestors = topLevel ? [] : trustedAncestors();
   if (!ancestors) {
-    showOpen("Play 0DTE ARENA in its own tab.");
+    showOpen("Play 0DTE ARENA in its own tab.", location.origin + "/");
     return;
   }
-  var embedder = ancestors[0];
-  var thirdParty = crossSite(ancestors);
+  var embedder = topLevel ? null : ancestors[0];
+  var thirdParty = !topLevel && crossSite(ancestors);
+
+  /* The game keeps the account in this origin's storage. If the browser blocks it inside the frame, the game would
+     start a fresh account on every visit; send the member to the full-screen page (first-party storage) instead. */
+  function storageOk() {
+    try {
+      var k = "0dte-arena-probe";
+      localStorage.setItem(k, "1");
+      var ok = localStorage.getItem(k) === "1";
+      localStorage.removeItem(k);
+      return ok;
+    } catch (e) { return false; }
+  }
+  if (!topLevel && !storageOk()) {
+    showOpen("This browser blocks the Arena's save inside Golden Ticket, so it would forget your account. Open it full screen instead.", location.origin + "/" + keep(), { label: "Open full screen" });
+    try { window.parent.postMessage({ source: "0dte-arena", type: "error", reason: "storage" }, embedder); } catch (e) {}
+    return;
+  }
 
   var done = false;
   var ctl = typeof AbortController === "function" ? new AbortController() : null;
@@ -191,8 +221,9 @@ html,body{margin:0;height:100%;background:#06070b;color:#eef1f7;font:14px/1.45 s
     done = true;
     clearTimeout(timer);
     if (ctl) { try { ctl.abort(); } catch (e) {} }
-    showOpen("The arena couldn't load here. Open it in its own tab instead.");
-    try { window.parent.postMessage({ source: "0dte-arena", type: "error" }, embedder); } catch (e) {}
+    if (topLevel) showOpen("The arena couldn't load right now. Try again in a moment.", location.href, { label: "Try again", sameTab: true, reload: true, alt: true });
+    else showOpen("The arena couldn't load here. Open it full screen instead.", location.origin + "/" + keep(), { label: "Open full screen", alt: true });
+    if (embedder) { try { window.parent.postMessage({ source: "0dte-arena", type: "error" }, embedder); } catch (e) {} }
   }
 
   var timer = setTimeout(fail, TIMEOUT_MS);
