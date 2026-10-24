@@ -40,6 +40,7 @@ html,body{margin:0;height:100%;background:#06070b;color:#eef1f7;font:14px/1.45 s
   <div class="note">Loading the live arena…</div>
 </main>
 <noscript><p style="text-align:center"><a class="open" href="https://regal-wolf-424.higgsfield.app/" target="_blank" rel="noopener">Open 0DTE ARENA</a></p></noscript>
+<script src="/indicators-v1.js"></script>
 <script>
 (function () {
   "use strict";
@@ -266,6 +267,7 @@ html,body{margin:0;height:100%;background:#06070b;color:#eef1f7;font:14px/1.45 s
       if (html.indexOf(CLIENT) < 0) throw new Error("not a shell-aware client");
       if (HOST_SCRIPT.test(html)) throw new Error("the game host's own script is in the page");
       html = repairReturningAccount(html);
+      if (window.ArenaIndicatorsPatch) html = window.ArenaIndicatorsPatch.apply(html);
       done = true;
       clearTimeout(timer);
       if (thirdParty) html = html.replace(MARK, function () { return MARK + THIRD_PARTY; });

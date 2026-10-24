@@ -30,3 +30,25 @@ Set `CHROME_PATH` if using a system Chrome instead of Playwright Chromium. Tests
 use synthetic accounts. They cover new-player setup, restore, frame reopening, persisted browser-context
 restart, full screen, missing-name repair, and blocked writes at phone and desktop widths. They do not prove
 persistence of a particular native app's webview; confirm a cold restart on the device after publishing.
+
+## Chart indicators
+
+`indicators-v1.js` upgrades the recognized live chart client when the shell loads it. RSI uses a 14-change
+simple-average seed followed by Wilder smoothing, with a neutral 50 for a fully flat window and nulls during
+warm-up. A responsive pane separates its title, 30/50/70 guides, curve, optional 14-value SMA, and axis badge.
+The curve stays aligned with candle centers. Cursor inspection samples an actual candle; the right-hand empty
+space never invents a value. Touch inspection does not modify price scales or drawings. Additional history
+stabilizes RSI/EMA seeds. Moving averages have clearer strokes; Bollinger bands have a subtle fill and dashed
+center line. Visible-range VWAP is labeled according to its existing calculation; session VWAP is separate.
+
+RSI reference: https://www.tradingview.com/support/solutions/43000502338-relative-strength-index-rsi/
+
+```sh
+node tests/indicators.cjs /path/to/game-shell.html
+node tests/indicator-browser.cjs /path/to/game-shell.html
+```
+
+The latter uses the same offline fixture harness and checks four viewport/DPR combinations. Set `SHOT_DIR`
+to save preview screenshots. The compatibility module leaves unrecognized future game renderers unchanged;
+port these changes upstream before removing the shell adaptation. Bump the script filename when changing a
+published version to avoid a cached older module.

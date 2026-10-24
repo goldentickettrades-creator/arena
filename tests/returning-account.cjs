@@ -15,6 +15,7 @@ async function install(context) {
     const url = new URL(route.request().url());
     if (url.origin === APP) return route.fulfill({ contentType: 'text/html', body: `<iframe src="${ARENA}/" sandbox="allow-scripts allow-same-origin allow-forms allow-popups" style="width:100%;height:800px"></iframe>` });
     if (url.origin === ARENA && url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: shell });
+    if (url.origin === ARENA && url.pathname === '/indicators-v1.js') return route.fulfill({ contentType: 'text/javascript', path: path.join(__dirname, '../indicators-v1.js') });
     if (url.origin === 'https://regal-wolf-424.higgsfield.app' && url.pathname === '/gt/shell') return route.fulfill({ contentType: 'text/plain', headers: { 'access-control-allow-origin': ARENA }, body: game });
     return route.abort();
   });
@@ -43,7 +44,8 @@ async function profile(frame, handle) {
     onProfile();
   }, handle);
 }
-(async () => {
+module.exports = { install, open, profile };
+if (require.main === module) (async () => {
   const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}) });
   try {
     for (const width of [390, 1440]) {
