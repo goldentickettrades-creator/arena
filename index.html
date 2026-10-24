@@ -65,6 +65,32 @@ html,body{margin:0;height:100%;background:#06070b;color:#eef1f7;font:14px/1.45 s
   var HOST_SCRIPT = /window\.__hf\w|window\.hf\s*=/;
   var TIMEOUT_MS = 20000;
 
+  /* Compatibility repair for the current live client. Its restore saves only the code, while boot tests the
+     saved handle. Recover that handle from the private account response, never from a public card or URL.
+     Match the complete legacy restore body before changing anything: a newer game owns its own restore flow.
+     Keep this repair here until it is included upstream; do not freeze a copy of the live game in the shell. */
+  function repairReturningAccount(html) {
+    var account = 'let accountId=lsGet("0dte-acct","");if(!accountId)';
+    var profile = 'function onProfile(){if(!profile)return;';
+    var restore = 'function _doRestore(norm){accountId=norm;playerId=norm;lsSet("0dte-acct",norm);loadPending();profile=null;toast("loading profile…");reconnect();closeSheet();showScreen("hub");viewMode="hub";}';
+    function once(part) { return html.indexOf(part) >= 0 && html.indexOf(part) === html.lastIndexOf(part); }
+    if (!once(account) || !once(profile) || !once(restore)) return html;
+    html = html.replace(account, 'let accountId=lsGet("0dte-acct","");let _gtReturningAccount=!!accountId;if(!accountId)');
+    html = html.replace(profile, profile +
+      'if(_gtReturningAccount&&typeof profile.handle==="string"&&profile.handle.trim()){' +
+      'myName=profile.handle.slice(0,16);lsSet("0dte-name",myName);_gtReturningAccount=false;' +
+      'if(viewMode==="boot"){viewMode="hub";showScreen("hub");}}');
+    return html.replace(restore,
+      'function _doRestore(norm){' +
+      'if(!/^0DTE-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(norm))return;' +
+      'lsSet("0dte-acct",norm);if(lsGet("0dte-acct","")!==norm){' +
+      'toast("This browser could not save your account. Open the Arena in your regular browser and restore there.");return;}' +
+      // Do not send the previous account's name in hello while the restored profile is loading.
+      'myName="";lsSet("0dte-name","");_gtReturningAccount=true;' +
+      'accountId=norm;playerId=norm;loadPending();profile=null;toast("loading profile…");' +
+      'reconnect();closeSheet();showScreen("hub");viewMode="hub";}');
+  }
+
   var box = document.getElementById("shell");
 
   function has(list, o) { return list.indexOf(o) >= 0; }
@@ -239,6 +265,7 @@ html,body{margin:0;height:100%;background:#06070b;color:#eef1f7;font:14px/1.45 s
       if (html.indexOf(MARK) < 0 || html.indexOf(TITLE) < 0) throw new Error("not the game page");
       if (html.indexOf(CLIENT) < 0) throw new Error("not a shell-aware client");
       if (HOST_SCRIPT.test(html)) throw new Error("the game host's own script is in the page");
+      html = repairReturningAccount(html);
       done = true;
       clearTimeout(timer);
       if (thirdParty) html = html.replace(MARK, function () { return MARK + THIRD_PARTY; });
