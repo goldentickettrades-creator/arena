@@ -18,6 +18,8 @@
   here is ordinary persistent storage. In a cross-site frame (a Lovable preview, or this page moved to another
   site) storage is third-party, which Safari drops when the browser quits; the game is then told so
   (window.__ARENA_SHELL_3P): coin purchases go to the full-screen game and a notice says so.
+  Inside Golden Ticket's iOS/Android app (user agent GoldenTicketApp/) nothing is sold: the app takes no payments,
+  so the Coins tab and every coin bundle are taken out and the game's checkout cannot open (window.__ARENA_SHELL_APP).
   No dependencies, no global names (the game's own scripts run in this same window afterwards).
   Do not add a Content-Security-Policy here: it would stay in force for the game written into this page.
 -->
@@ -171,6 +173,40 @@ html,body{margin:0;height:100%;background:#06070b;color:#eef1f7;font:14px/1.45 s
      full-screen game (gt2_patch.mjs) instead of crediting this frame's possibly short-lived account. */
   var THIRD_PARTY = "<script>window.__ARENA_SHELL_3P=1;(" + notice + ")(" + JSON.stringify(GAME + "/") + ")<\/script>";
 
+  /* Golden Ticket's iOS/Android app marks its web view's user agent. The app sells nothing (the stores' payment
+     rules; members buy on the website), so there the game gets no coin store: coins it already has, earned or
+     bought on the website, still work. */
+  var inApp = navigator.userAgent.indexOf("GoldenTicketApp/") >= 0;
+  function appGuard() {
+    /* Belt and braces under the store patch: a bundle or Coins tab click never reaches the game, and a checkout page
+       never opens. Capture phase on the document runs before the game's own handlers. */
+    document.addEventListener("click", function (e) {
+      var t = e.target && e.target.closest ? e.target.closest("[data-bundle],[data-tab=coins]") : null;
+      if (t) { e.preventDefault(); e.stopImmediatePropagation(); }
+    }, true);
+    var open = window.open;
+    window.open = function (url) {
+      if (/stripe\.com|checkout/i.test(String(url))) return null;
+      return open.apply(window, arguments);
+    };
+  }
+  /* Goes right after MARK inside the app. The style hides the store's Coins tab and bundles even if the game's store
+     code changes and the patch below no longer matches. */
+  var APP_ONLY = "<style>.seg button[data-tab=coins],[data-bundle]{display:none!important}</style>" +
+    "<script>window.__ARENA_SHELL_APP=1;(" + appGuard + ")()<\/script>";
+  var STORE_TABS = '["markets","Markets"],["coins","Coins"]];';
+  var NO_PURCHASES = "No coin purchases yet \u2014 buy coins and they'll show here.";
+  function appStore(html) {
+    if (html.split(STORE_TABS).length === 2) {
+      html = html.replace(STORE_TABS, function () {
+        return '["markets","Markets"]].concat(window.__ARENA_SHELL_APP?[]:[["coins","Coins"]]);' +
+          'if(window.__ARENA_SHELL_APP&&storeTab==="coins")storeTab="cosmetics";';
+      });
+    }
+    if (html.split(NO_PURCHASES).length === 2) html = html.replace(NO_PURCHASES, function () { return "No coin purchases yet."; });
+    return html.replace(MARK, function () { return MARK + APP_ONLY; });
+  }
+
   /* The supported parts of this page's URL (the game's own share / link fragments), carried along when sending the
      member to the full-screen page so a pending #gtlink/ confirmation or a referral is not lost. */
   function keep() {
@@ -271,6 +307,7 @@ html,body{margin:0;height:100%;background:#06070b;color:#eef1f7;font:14px/1.45 s
       done = true;
       clearTimeout(timer);
       if (thirdParty) html = html.replace(MARK, function () { return MARK + THIRD_PARTY; });
+      if (inApp) html = appStore(html);
       /* The URL (and its #gtlink/... fragment) stays as it is: the game reads it once it runs. */
       document.open();
       document.write(html);
